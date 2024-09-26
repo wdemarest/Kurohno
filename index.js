@@ -1,11 +1,13 @@
 //TWEAKS
-let gameSettings = {
-    width: 9,
-    height: 9,
-    mustSeeMax: undefined
-}
+let boardSize = 8;
 
-gameSettings.mustSeeMax = gameSettings.width;
+let gameSettings = {
+    width: boardSize,
+    height: boardSize,
+    onlyDefaultWhenSurrounded: true,
+    mustSeeMax: boardSize,
+    atLeasts: true
+}
 
 let viewSettings = {
     padding: 5, // Padding between circles
@@ -16,7 +18,7 @@ let viewSettings = {
 }
 
 let gameBoard;
-let solutionBoard;
+let solvedGameBoard;
 let gameWon = false;
 
 let showLocks = false;
@@ -31,7 +33,7 @@ function render() {
     drawBoard(gameBoard);
 
     //DEBUG show solution
-    drawBoard(solutionBoard, viewSettings.boardWidthPx, viewSettings.boardHeightPx,  viewSettings.xOffset+800, viewSettings.yOffset);
+    drawBoard(solvedGameBoard, viewSettings.boardWidthPx, viewSettings.boardHeightPx,  viewSettings.xOffset+800, viewSettings.yOffset);
 }
 
 function drawBoard(board = gameBoard, widthPx = viewSettings.boardWidthPx, heightPx = viewSettings.boardHeightPx, xOffset = viewSettings.xOffset, yOffset = viewSettings.yOffset, padding = viewSettings.padding) {
@@ -63,7 +65,6 @@ function drawBoard(board = gameBoard, widthPx = viewSettings.boardWidthPx, heigh
             ctx.fill();
             
 
-            
             // Draw the mustSee value
             if(board[x][y].mustSee){
                 ctx.fillStyle = 'white';
@@ -75,7 +76,18 @@ function drawBoard(board = gameBoard, widthPx = viewSettings.boardWidthPx, heigh
                 ctx.font = circleRadius + 'px Arial'; // Adjust the font size based on the circle radius
                 ctx.textAlign = 'center'; // Center the text horizontally
                 ctx.textBaseline = 'middle'; // Center the text vertically
-                ctx.fillText(board[x][y].mustSee, centerX, centerY);
+
+                let text = board[x][y].mustSee;
+
+                if(board[x][y].atLeast){
+                    if(board[x][y].mustSee > 0){
+                        text = "≥" + text;
+                    } else {
+                        text = "";
+                    }
+                }
+
+                ctx.fillText(text, centerX, centerY);
             }
         }
     }
@@ -97,17 +109,25 @@ function drawBoard(board = gameBoard, widthPx = viewSettings.boardWidthPx, heigh
 
 function Main() {
     gameBoard = generatePuzzle(gameSettings.width, gameSettings.height);
+    solvedGameBoard = solve(gameBoard).board;
+
     render();
 
     initControls();
 
-    //solve(board);
+    for(let i = 0; i < 10; i++){
+        console.log(i+"=====================================");
+    }
+
+
 }
 
 function Cell(color) {
     this.color = color;
     this.mustSee;
     this.colorLocked = false;
+
+    this.atLeast = false;
 }
 
 function generatePuzzle(width, height) {
@@ -125,7 +145,7 @@ function generatePuzzle(width, height) {
     }
     randomizedOrderCells.sort(() => Math.random() - 0.5);
 
-    //remove cells from the board until it is not solvable
+    //Make cells empty until unsolvable
     
     while(randomizedOrderCells.length > 0){
         let solvable = true;
@@ -138,37 +158,50 @@ function generatePuzzle(width, height) {
 
         board[cell.x][cell.y].color = null;
         board[cell.x][cell.y].mustSee = null;
+        
 
-        //if solver's board and solvedBoard don't have matching cell colors, the puzzle is unsolvable
-        let solverResult = solve(board);
-        
-        
-        if(!solverResult.solvability === true){
-            solvable = false;
+        if(solve(board).solvability != 1){
+            //restore the cell
+            board[cell.x][cell.y] = cellInfo;
         }else{
-            let solverBoard = solverResult.board;
-            for(let i = 0; i < solverBoard.length; i++){
-                for(let j = 0; j < solverBoard[i].length; j++){
-                    if(solverBoard[i][j].color != solvedBoard[i][j].color){
-                        solvable = false;
-                    }
-                }
+            cellsRemoved++;
+        }
+    }
+
+    let randomizedOrderNumCells = [];
+    for(let i = 0; i < board.length; i++){
+        for(let j = 0; j < board[i].length; j++){
+            if(board[i][j].mustSee != null){
+                randomizedOrderNumCells.push({x: i, y: j});
+            }
+        }
+    }
+    randomizedOrderNumCells.sort(() => Math.random() - 0.5);
+
+    if(gameSettings.atLeasts){
+        //Make numCells into atLeasts until the board is unsolvable
+
+        while(randomizedOrderNumCells.length > 0){
+            let cell = randomizedOrderNumCells.pop();
+
+            let originalMustSee = board[cell.x][cell.y].mustSee;
+
+            board[cell.x][cell.y].atLeast = true;
+            //mustsee between 1 and originalMustSee
+            board[cell.x][cell.y].mustSee = Math.floor(Math.random() * originalMustSee) + 1;
+
+            //drawBoard(board);
+
+            if(solve(board).solvability != 1){
+                //restore the cell
+                board[cell.x][cell.y].atLeast = false;
+                board[cell.x][cell.y].mustSee = originalMustSee;
+
+            }else{
+                console.log("atLeast-ified cell: " + cell.x + ", " + cell.y);
             }
         }
 
-        //drawBoard(board);
-        
-
-        if(!solvable){
-            board[cell.x][cell.y] = cellInfo;
-            //console.log("COULDN'T remove cell: " + cell.x + ", " + cell.y);
-        }else{
-            //console.log("removed cell: " + cell.x + ", " + cell.y);
-
-            cellsRemoved++;
-
-            solutionBoard = solverResult.board;
-        }
     }
 
     let boardArea = width * height;
@@ -184,7 +217,6 @@ function generatePuzzle(width, height) {
             }
         }
     }
-
 
     return board;
 }
@@ -325,29 +357,37 @@ function fillInReds(board){
         for(let y = 0; y < board[x].length; y++){
             if(board[x][y].color == null){
                 //if cell cannot see any blues, default it to red
-                let canSeeBlue = false;
-                
-                iterateInDirection("all", (dx, dy)=>{
-                    cellX = x + dx;
-                    cellY = y + dy;
 
-                    if(inBounds(cellX, cellY, board) && board[cellX][cellY].color == "blue"){
-                        canSeeBlue = true;
-                    }
+                if(gameSettings.onlyDefaultWhenSurrounded){
 
-                    if(inBounds(cellX, cellY, board) && board[cellX][cellY].color != "red"){
-                        return true;
-                    }
+                    let canSeeBlue = false;
                     
-                    return false;
-                    
-                });
+                    iterateInDirection("all", (dx, dy)=>{
+                        cellX = x + dx;
+                        cellY = y + dy;
 
-                if(canSeeBlue == false){
+                        if(inBounds(cellX, cellY, board) && board[cellX][cellY].color == "blue"){
+                            canSeeBlue = true;
+                        }
+
+                        if(inBounds(cellX, cellY, board) && board[cellX][cellY].color != "red"){
+                            return true;
+                        }
+                        
+                        return false;
+                        
+                    });
+
+                    if(canSeeBlue == false){
+                        board[x][y].color = "red";
+                        //console.log("cell at " + x + ", " + y + " DEFAULTED");
+                    }    
+
+                }else{
                     board[x][y].color = "red";
-                    //console.log("cell at " + x + ", " + y + " DEFAULTED");
                 }
-            }
+
+           }
         }
     }
 }
@@ -393,27 +433,32 @@ if (board[x][y].color == 'red') {
 }
 */
 
-function solve(boardParam){
-    let board = JSON.parse(JSON.stringify(boardParam));
+function solve(inputBoard, maxMoves = null){
+    let board = JSON.parse(JSON.stringify(inputBoard));
 
     //MAKE A LIST OF ALL NUMBER CELLS (cells with a mustSee property)
     let numCells = [];
     for(let i = 0; i < board.length; i++){
         for(let j = 0; j < board[i].length; j++){
             if(board[i][j].mustSee != null){
-                numCells.push({x: i, y: j, mustSee: board[i][j].mustSee});
+                //shallow copy the cell with stringifying and parsing
+                let numCell = JSON.parse(JSON.stringify(board[i][j]));
+                numCell.x = i;
+                numCell.y = j;
+                numCells.push(numCell);
+                console.log(numCell);
             }
         }
     }
 
     let progressMade = true;
 
-    let solveIterations = 0;
+    let movesMade = 0;
 
-    while(solveIterations < 10 && progressMade){
-        solveIterations++;
+    while(progressMade && (maxMoves == null || movesMade < maxMoves)){
         progressMade = false;
-        
+
+        movesMade++;
 
         //LOOP THROUGH ALL NUMCELLS TO ADD BLUES
         for(let i = 0; i < numCells.length; i++){
@@ -466,7 +511,7 @@ function solve(boardParam){
                 //iterate through numCells
                 for(let k = 0; k < numCells.length; k++){
                     //if the numCell is overloaded, remove the solution from the solutionList
-                    if(numCells[k].mustSee < countSeen(numCells[k].x, numCells[k].y, hypotheticalBoard)){
+                    if(numCells[k].mustSee < countSeen(numCells[k].x, numCells[k].y, hypotheticalBoard) && !numCells[k].atLeast){
                         //console.log("removed solution: " + solutionList[j] + " of numCell: " + cell.x + ", " + cell.y);
                         solutionList.splice(j, 1);
                         j--;
@@ -491,20 +536,24 @@ function solve(boardParam){
             for(let j = 0; j < 4; j++){
                 if(conclusion[j] > 0){
                     if(addBluesFromNumCell(cell.x, cell.y, board, conclusion)){
+                        console.log("added blues to numCell: " + cell.x + ", " + cell.y, " with conclusion: " + conclusion);
                         progressMade = true;
                     }
                 }
             }
         }
 
-        //LOOP THROUGH ALL NUMCELLS TO CAP
+        //LOOP THROUGH ALL NUMCELLS TO CAP WITH REDS
         for(let i = 0; i < numCells.length; i++){
 
             let cell = numCells[i];
             
             //If this cell sees the number of blues equal to its mustSee, cap its 4 ends with reds
-            if(countSeen(cell.x, cell.y, board) == cell.mustSee){
-                
+            console.log("cell.atLeast: " + cell.atLeast);   
+
+            if(countSeen(cell.x, cell.y, board) == cell.mustSee && !cell.atLeast){
+                console.log("capping numCell: " + cell.x + ", " + cell.y + " with reds");
+
                 for(let j = 0; j < 4; j++){
                     iterateInDirection(j, (dx, dy)=>{
                         x = cell.x + dx;
@@ -514,6 +563,7 @@ function solve(boardParam){
                             return true;
                         } else if(inBounds(x, y, board) && board[x][y].color == null){
                             board[x][y].color = 'red';
+                            console.log("capped numCell: " + cell.x + ", " + cell.y + " with reds");
                             progressMade = true;
                         }
                         return false
@@ -523,22 +573,24 @@ function solve(boardParam){
             }
 
         }
-    }
-    //console.log("solve iterations: " + solveIterations);
 
-    //if all numCells are satisfied
-    let solvability = true;
-    for(let i = 0; i < numCells.length; i++){
-        if(countSeen(numCells[i].x, numCells[i].y, board) != numCells[i].mustSee){
-            solvability = false;
+        //LOOP THROUGH ALL CELLS TO PLACE REDS THAT PREVENT OVERLOADING
+        for(let x = 0; x < board.length; x++){
+            for(let y = 0; y < board[x].length; y++){
+                
+            }
         }
     }
 
-    fillInReds(board);
+    console.log("progressMade: " + progressMade);
 
-    if(!solvability){
-        solvability = countPercentFull(board);
+    if(!maxMoves || !progressMade){
+        fillInReds(board);
     }
+
+    solvability = countPercentFull(board);
+
+    console.log(board);
 
     return {solvability: solvability, board: board};
 }
@@ -562,6 +614,11 @@ function initControls(){
 
         //console.log("clicked cell: " + clickedX + ", " + clickedY);
         
+        //click is inbounds
+        if(!inBounds(clickedX, clickedY, gameBoard)){
+            return;
+        }
+
         if(gameBoard[clickedX][clickedY].colorLocked){
             console.log("Cell is locked, sorry!");
             
@@ -583,6 +640,16 @@ function initControls(){
 
         changeMade();
     });
+
+    //add spacebar listener
+    document.addEventListener('keydown', function(event){
+        if(event.key == " "){
+            console.log("Solve step");
+            let result = solve(gameBoard, 1);
+            gameBoard = result.board;
+            render();
+        }
+    });
 }
 
 function changeMade(){
@@ -598,7 +665,7 @@ function changeMade(){
 function boardSolved(){
     for(let i = 0; i < gameBoard.length; i++){
         for(let j = 0; j < gameBoard[i].length; j++){
-            if(gameBoard[i][j].color != solutionBoard[i][j].color){
+            if(gameBoard[i][j].color != solvedGameBoard[i][j].color){
                 return false;
             }
         }
