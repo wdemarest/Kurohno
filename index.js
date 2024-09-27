@@ -5,8 +5,12 @@ let gameSettings = {
     width: boardSize,
     height: boardSize,
     onlyDefaultWhenSurrounded: true,
-    mustSeeMax: boardSize,
-    atLeasts: true
+    seenLimit: boardSize
+}
+
+let specialPlacementChances = {
+    atLeast: 10,
+    atMost: 10
 }
 
 let viewSettings = {
@@ -65,8 +69,8 @@ function drawBoard(board = gameBoard, widthPx = viewSettings.boardWidthPx, heigh
             ctx.fill();
             
 
-            // Draw the mustSee value
-            if(board[x][y].mustSee){
+            // Draw the text
+            if(board[x][y].minSeen || board[x][y].maxSeen){
                 ctx.fillStyle = 'white';
 
                 if(gameWon){
@@ -77,15 +81,26 @@ function drawBoard(board = gameBoard, widthPx = viewSettings.boardWidthPx, heigh
                 ctx.textAlign = 'center'; // Center the text horizontally
                 ctx.textBaseline = 'middle'; // Center the text vertically
 
-                let text = board[x][y].mustSee;
+                let text;
 
-                if(board[x][y].atLeast){
-                    if(board[x][y].mustSee > 0){
-                        text = "≥" + text;
-                    } else {
-                        text = "";
+                if(board[x][y].minSeen && board[x][y].maxSeen){
+                    if(board[x][y].minSeen == board[x][y].maxSeen){
+                        text = board[x][y].minSeen;
+                    }else{
+                        text = board[x][y].minSeen + "-" + board[x][y].maxSeen;
                     }
                 }
+
+                if(board[x][y].minSeen && !board[x][y].maxSeen){
+                    text = "≥" + board[x][y].minSeen;
+                }
+
+
+                if(!board[x][y].minSeen && board[x][y].maxSeen){
+                    text = "≤" + board[x][y].maxSeen;
+                }
+
+                
 
                 ctx.fillText(text, centerX, centerY);
             }
@@ -124,10 +139,11 @@ function Main() {
 
 function Cell(color) {
     this.color = color;
-    this.mustSee;
+    this.minSeen = null;
+    this.maxSeen = null;
     this.colorLocked = false;
 
-    this.atLeast = false;
+    this.specialType = null;
 }
 
 function generatePuzzle(width, height) {
@@ -135,7 +151,46 @@ function generatePuzzle(width, height) {
     let board = JSON.parse(JSON.stringify(solvedBoard));
 
     let cellsRemoved = 0;
+
+
+    let nextChangeType = null;
     
+    for(let i = 0; i < gameSettings.width * gameSettings.height; i++){
+        let x = Math.floor(Math.random() * gameSettings.width);
+        let y = Math.floor(Math.random() * gameSettings.height);
+
+        let cell = board[x][y];
+
+        if(cell.specialType){
+            continue;
+        }
+
+        if(cell.color != 'blue' && nextChangeType){
+            continue;
+        }
+
+
+        let changeSuccessful = attemptChangeAndCheckSolvability(board, x, y, nextChangeType);
+
+        if(changeSuccessful){
+            //randomize nextChangeType
+
+            let random = Math.random() * 100;
+
+            nextChangeType = null;
+
+            let total = 0;
+            for(let key in specialPlacementChances){
+                total += specialPlacementChances[key];
+                if(random < total){
+                    nextChangeType = key;
+                    break;
+                }
+            }
+        }
+    }
+
+    /*
     //make a array of all the cells in randomized order
     let randomizedOrderCells = [];
     for(let i = 0; i < board.length; i++){
@@ -145,64 +200,107 @@ function generatePuzzle(width, height) {
     }
     randomizedOrderCells.sort(() => Math.random() - 0.5);
 
-    //Make cells empty until unsolvable
+    //Make cells empty or special until unsolvable
+
+    
+
+    
     
     while(randomizedOrderCells.length > 0){
-        let solvable = true;
-        let cell = randomizedOrderCells.pop();
+        let cellCoords = randomizedOrderCells.pop();
+        let cell = board[cellCoords.x][cellCoords.y];
+
+        //shallow copy the cell, and save the original cell info
+        let ogCellInfo = JSON.parse(JSON.stringify(cell));
 
         
 
-        //shallow copy the cell
-        let cellInfo = JSON.parse(JSON.stringify(board[cell.x][cell.y]));
-
-        board[cell.x][cell.y].color = null;
-        board[cell.x][cell.y].mustSee = null;
-        
+        cell.color = null;
+        cell.minSeen = null;
+        cell.maxSeen = null;
 
         if(solve(board).solvability != 1){
             //restore the cell
-            board[cell.x][cell.y] = cellInfo;
+            board[cellCoords.x][cellCoords.y] = ogCellInfo;
         }else{
             cellsRemoved++;
         }
     }
+    */
 
-    let randomizedOrderNumCells = [];
-    for(let i = 0; i < board.length; i++){
-        for(let j = 0; j < board[i].length; j++){
-            if(board[i][j].mustSee != null){
-                randomizedOrderNumCells.push({x: i, y: j});
+    /*
+    if(gameSettings.placeAtLeasts){
+
+        let randomizedOrderNumCells = [];
+        for(let i = 0; i < board.length; i++){
+            for(let j = 0; j < board[i].length; j++){
+                if(board[i][j].minSeen != null || board[i][j].maxSeen != null){
+                    randomizedOrderNumCells.push({x: i, y: j});
+                }
             }
         }
-    }
-    randomizedOrderNumCells.sort(() => Math.random() - 0.5);
-
-    if(gameSettings.atLeasts){
-        //Make numCells into atLeasts until the board is unsolvable
-
+        randomizedOrderNumCells.sort(() => Math.random() - 0.5);    
+    
+    
+        //Make numCells into atLeast until the board is unsolvable
         while(randomizedOrderNumCells.length > 0){
             let cell = randomizedOrderNumCells.pop();
 
-            let originalMustSee = board[cell.x][cell.y].mustSee;
+            //shallow copy the cell, and save the original cell info
+            let ogCellInfo = JSON.parse(JSON.stringify(board[cell.x][cell.y]));
 
-            board[cell.x][cell.y].atLeast = true;
-            //mustsee between 1 and originalMustSee
-            board[cell.x][cell.y].mustSee = Math.floor(Math.random() * originalMustSee) + 1;
+            //minSeen between 1 and original minSeen
+            board[cell.x][cell.y].minSeen = Math.floor(Math.random() * ogCellInfo.minSeen) + 1;
+            board[cell.x][cell.y].maxSeen = null;
 
             //drawBoard(board);
 
             if(solve(board).solvability != 1){
                 //restore the cell
-                board[cell.x][cell.y].atLeast = false;
-                board[cell.x][cell.y].mustSee = originalMustSee;
+                board[cell.x][cell.y] = ogCellInfo;
 
             }else{
-                console.log("atLeast-ified cell: " + cell.x + ", " + cell.y);
+                console.log("removed maxSeen from cell: " + cell.x + ", " + cell.y);
             }
         }
-
     }
+
+    
+    if(gameSettings.placeAtMosts){
+
+        let randomizedOrderNumCells = [];
+        for(let i = 0; i < board.length; i++){
+            for(let j = 0; j < board[i].length; j++){
+                if(board[i][j].minSeen != null || board[i][j].maxSeen != null){
+                    randomizedOrderNumCells.push({x: i, y: j});
+                }
+            }
+        }
+        randomizedOrderNumCells.sort(() => Math.random() - 0.5);    
+        
+        //Make numCells into atMosts until the board is unsolvable
+        while(randomizedOrderNumCells.length > 0){
+            let cell = randomizedOrderNumCells.pop();
+
+            //shallow copy the cell, and save the original cell info
+            let ogCellInfo = JSON.parse(JSON.stringify(board[cell.x][cell.y]));
+
+            board[cell.x][cell.y].minSeen = null;
+            //maxseen between and original maxSeen and seenLimit
+            board[cell.x][cell.y].maxSeen = Math.floor(Math.random() * (gameSettings.seenLimit - ogCellInfo.maxSeen)) + ogCellInfo.maxSeen;
+
+            //drawBoard(board);
+
+            if(solve(board).solvability != 1){
+                //restore the cell
+                board[cell.x][cell.y] = ogCellInfo;
+
+            }else{
+                console.log("removed minSeen from cell: " + cell.x + ", " + cell.y);
+            }
+        }
+    }
+    */
 
     let boardArea = width * height;
     let remaining = boardArea - cellsRemoved;
@@ -251,16 +349,19 @@ function generateSolution(width, height) {
         }
 
 
-        //set the mustSee property of each cell
+        //set the seen limits of each cell
         for (let x = 0; x < board.length; x++) {
             for (let y = 0; y < board[x].length; y++) {
                 if(board[x][y].color == 'red'){
                     continue;
                 }
-                board[x][y].mustSee = countSeen(x, y, board);
+
+                let seen = countSeen(x, y, board);
+                board[x][y].minSeen = seen;
+                board[x][y].maxSeen = seen;
                 
-                //check if mustSees are valid
-                if(board[x][y].mustSee == 0 || board[x][y].mustSee > gameSettings.mustSeeMax){
+                //check if number seen is are valid
+                if(seen < 1 || seen > gameSettings.seenLimit){
                     boardValid = false;
                 }
             }
@@ -269,6 +370,39 @@ function generateSolution(width, height) {
     console.log("solution generation attempts: " + attempts);
 
     return board;
+}
+
+function attemptChangeAndCheckSolvability(board, x, y, specialType){
+    let ogCellInfo = JSON.parse(JSON.stringify(board[x][y]));
+    let cell = board[x][y];
+
+    if(!specialType){
+        cell.color = null;
+        cell.minSeen = null;
+        cell.maxSeen = null;
+    }
+
+    if(specialType == "atLeast"){
+        cell.minSeen = Math.floor(Math.random() * cell.minSeen) + 1;
+        cell.maxSeen = null;
+    }
+
+    if(specialType == "atMost"){
+        cell.minSeen = null;
+        cell.maxSeen = Math.floor(Math.random() * (gameSettings.seenLimit - cell.maxSeen)) + cell.maxSeen;
+    }
+
+    cell.specialType = specialType;
+
+    let solvability = solve(board).solvability;
+
+    if(solvability != 1){
+        board[x][y] = ogCellInfo;
+    }else{
+        console.log("changed cell at: " + x + ", " + y + " to " + specialType);
+    }
+
+    return solvability == 1;
 }
 
 function iterateInDirection(direction, func) {
@@ -379,12 +513,12 @@ function fillInReds(board){
                     });
 
                     if(canSeeBlue == false){
-                        board[x][y].color = "red";
+                        board[x][y].color = 'red';
                         //console.log("cell at " + x + ", " + y + " DEFAULTED");
                     }    
 
                 }else{
-                    board[x][y].color = "red";
+                    board[x][y].color = 'red';
                 }
 
            }
@@ -407,44 +541,18 @@ function countPercentFull(board){
     return count / total;
 }
 
-/*
-//check that there are no ambiguous reds
-if (board[x][y].color == 'red') {
-    seesBluesInCurrentDirection = false;
-
-    iterateInDirection("all", (dx, dy) => {
-        let cellX = x+dx;
-        let cellY = y+dy;
-
-        if(!inBounds(cellX, cellY, board){
-            //AMBIGUOUS RED FOUND!!!!!!!!!!!!!!!!!!!!!!!!
-        }
-
-        if(board[cellX][cellY].color == 'blue'){
-            seesBluesInCurrentDirection = true;
-
-        }
-
-        if(board[cellX][cellY].mustSee > 0 || board[cellX][cellY].color == 'red'){
-            seesBluesInCurrentDirection = false;
-            return false;
-        }
-    });
-}
-*/
-
 function solve(inputBoard, maxMoves = null){
     let board = JSON.parse(JSON.stringify(inputBoard));
 
-    //MAKE A LIST OF ALL NUMBER CELLS (cells with a mustSee property)
+    //MAKE A LIST OF ALL NUMBER CELLS
     let numCells = [];
-    for(let i = 0; i < board.length; i++){
-        for(let j = 0; j < board[i].length; j++){
-            if(board[i][j].mustSee != null){
+    for(let x = 0; x < board.length; x++){
+        for(let y = 0; y < board[x].length; y++){
+            if(board[x][y].mixSeen != null || board[x][y].maxSeen != null){
                 //shallow copy the cell with stringifying and parsing
-                let numCell = JSON.parse(JSON.stringify(board[i][j]));
-                numCell.x = i;
-                numCell.y = j;
+                let numCell = JSON.parse(JSON.stringify(board[x][y]));
+                numCell.x = x;
+                numCell.y = y;
                 numCells.push(numCell);
                 console.log(numCell);
             }
@@ -485,7 +593,9 @@ function solve(inputBoard, maxMoves = null){
                 for (let b = 0; b <= availableSpacesInDir[1]; b++) {
                     for (let c = 0; c <= availableSpacesInDir[2]; c++) {
                         for (let d = 0; d <= availableSpacesInDir[3]; d++) {
-                            if (a + b + c + d === cell.mustSee) {
+                            let totalSeen = a + b + c + d;
+
+                            if (totalSeen <= cell.maxSeen && totalSeen >= cell.minSeen) {
                                 solutionList.push([a, b, c, d]);
                             }
                         }
@@ -497,21 +607,18 @@ function solve(inputBoard, maxMoves = null){
 
             //REMOVE SOLUTIONS THAT OVERLOAD ANY NUMCELLS (including self)
             for(let j = 0; j < solutionList.length; j++){ //iterate through solutionList
-                //create a hypothetical board, by creating the number of blue cells in each direction that the solution says
-                
+
+                //create a hypothetical board, and implement the solution on it
                 let hypotheticalBoard = JSON.parse(JSON.stringify(board));
 
                 addBluesFromNumCell(cell.x, cell.y, hypotheticalBoard, solutionList[j]);
 
-                //drawBoard(hypotheticalBoard, 600, 600, 840, 40);
-                //console.log("solution: " + solutionList[j] + " of numCell: " + cell.x + ", " + cell.y);
-                //console.log("DRAWN");
-
-                
                 //iterate through numCells
                 for(let k = 0; k < numCells.length; k++){
+                    let cellBeingChecked = numCells[k];
+
                     //if the numCell is overloaded, remove the solution from the solutionList
-                    if(numCells[k].mustSee < countSeen(numCells[k].x, numCells[k].y, hypotheticalBoard) && !numCells[k].atLeast){
+                    if(cellBeingChecked.maxSeen && cellBeingChecked.maxSeen < countSeen(cellBeingChecked.x, cellBeingChecked.y, hypotheticalBoard)){
                         //console.log("removed solution: " + solutionList[j] + " of numCell: " + cell.x + ", " + cell.y);
                         solutionList.splice(j, 1);
                         j--;
@@ -548,10 +655,10 @@ function solve(inputBoard, maxMoves = null){
 
             let cell = numCells[i];
             
-            //If this cell sees the number of blues equal to its mustSee, cap its 4 ends with reds
-            console.log("cell.atLeast: " + cell.atLeast);   
+            //If this cell sees a number of blues equal to its maxSeen, cap its 4 ends with reds
+            console.log("cell.maxSeen: " + cell.maxSeen);
 
-            if(countSeen(cell.x, cell.y, board) == cell.mustSee && !cell.atLeast){
+            if(cell.maxSeen && cell.maxSeen == countSeen(cell.x, cell.y, board)){
                 console.log("capping numCell: " + cell.x + ", " + cell.y + " with reds");
 
                 for(let j = 0; j < 4; j++){
